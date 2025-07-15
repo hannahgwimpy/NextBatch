@@ -1,6 +1,6 @@
 # AWS Batch + Nextflow Infrastructure Template
 
-This project provides a comprehensive template for running Nextflow workflows on AWS Batch. It includes infrastructure as code, container management scripts, a workflow launcher, and a monitoring dashboard.
+A comprehensive template for running Nextflow workflows on AWS Batch. It includes infrastructure as code, container management scripts, a workflow launcher, and a monitoring dashboard.
 
 ## Project Structure
 
