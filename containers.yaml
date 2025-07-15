@@ -1,0 +1,23 @@
+# Container manifest for the Nextflow AWS Batch project
+# This file defines the Docker containers to be built and pushed to ECR.
+
+# The ECR repository where the containers will be stored.
+repository: "nextflow-containers"
+
+# List of containers to build.
+containers:
+  - name: "base"
+    dockerfile: "Dockerfile.base"
+    tags: ["latest"]
+
+  - name: "bwa"
+    dockerfile: "Dockerfile.bwa"
+    tags: ["latest", "0.7.17"] # Example of multiple tags
+
+  - name: "samtools"
+    dockerfile: "Dockerfile.samtools"
+    tags: ["latest", "1.15.1"]
+
+  - name: "gatk"
+    dockerfile: "Dockerfile.gatk"
+    tags: ["latest", "4.2.6.1"]

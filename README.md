@@ -64,21 +64,27 @@ Update `nextflow.config` with the outputs from your CloudFormation stack:
 
 ### 3. Build and Push Containers
 
-The `scripts/build-containers.sh` script builds the Docker images and pushes them to Amazon ECR.
+This project uses a manifest-driven approach to manage Docker containers, inspired by best practices from services like AWS HealthOmics. All containers are defined in `containers.yaml`.
 
-1.  **Update Placeholders**: Edit `scripts/build-containers.sh` and replace `YOUR_ACCOUNT_ID` with your AWS Account ID.
+1.  **Customize Your Containers (Optional)**:
+    Edit `containers.yaml` to add, remove, or modify container definitions. You can easily add new tools or change version tags here.
 
-2.  **Run the script**:
+2.  **Run the Build Manager**:
+    Use the `scripts/build_manager.py` script to build and push all the containers defined in your manifest to ECR.
 
     ```bash
-    ./scripts/build-containers.sh
+    python scripts/build_manager.py \
+        --account-id <YOUR_AWS_ACCOUNT_ID> \
+        --region <YOUR_AWS_REGION>
     ```
 
-    This will create an ECR repository named `nextflow-containers` if it doesn't exist, and then build and push the base and tool-specific containers.
+    The script will automatically create the ECR repository, log in to ECR, and then build, tag, and push each container.
 
-### 4. Run a Workflow
+### 4. Launch a Workflow (Dynamic Pipelines)
 
-The `launcher.py` script provides a convenient way to submit Nextflow workflows to AWS Batch.
+This project is designed to dynamically launch **any** Nextflow workflow without requiring changes to the infrastructure. The `launcher.py` script accepts a Git URL for any Nextflow pipeline.
+
+Use the script to submit a workflow to AWS Batch:
 
 1.  **Update `params.json`**: Modify `params.json` with the actual S3 paths for your input data and desired output location.
 
@@ -94,21 +100,18 @@ The `launcher.py` script provides a convenient way to submit Nextflow workflows 
 
 ### 5. Monitor the Workflow
 
-You can monitor the progress of your workflow in a few ways:
+The `monitor.py` script runs a Flask web server with a dashboard to track your jobs.
 
--   **Nextflow Log**: Use the job name to get logs:
+**To run the dashboard:**
+```bash
+python monitor.py --queue <your-batch-job-queue-name>
+```
+Then, open your browser to `http://127.0.0.1:5000/dashboard`.
 
-    ```bash
-    nextflow log <job-name>
-    ```
-
--   **Monitoring Dashboard**: Run the Flask application:
-
-    ```bash
-    python monitor.py --queue <your-batch-job-queue-name>
-    ```
-
-    Then, open your browser to `http://127.0.0.1:5000/dashboard` to see a list of running jobs.
+**Dashboard Features:**
+- **View All Jobs**: See a list of jobs across every status (Running, Succeeded, Failed, etc.).
+- **Detailed Logs**: Click **"View Logs"** on any job to see its detailed output from Amazon CloudWatch Logs.
+- **Performance Metrics**: Click **"View Metrics"** for placeholder performance data (CPU, memory).
 
 ## Advanced Configuration
 

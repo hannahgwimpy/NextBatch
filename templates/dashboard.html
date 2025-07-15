@@ -5,12 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nextflow AWS Batch Dashboard</title>
     <style>
-        body { font-family: sans-serif; margin: 2em; }
-        h1, h2 { color: #333; }
-        #jobs-container { margin-top: 1em; padding: 1em; border: 1px solid #ccc; border-radius: 5px; }
-        .job { border-bottom: 1px solid #eee; padding: 0.5em 0; }
-        .job:last-child { border-bottom: none; }
-        .job-id { font-weight: bold; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 2em; background-color: #f9f9f9; color: #333; }
+        h1, h2 { color: #111; }
+        #jobs-container { background-color: #fff; margin-top: 1em; padding: 1.5em; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        table { width: 100%; border-collapse: collapse; margin-top: 1em; }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; }
+        button { background-color: #007bff; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-size: 14px; }
+        button:hover { background-color: #0056b3; }
+        .status { padding: 5px 10px; border-radius: 15px; color: white; font-weight: bold; text-transform: uppercase; font-size: 12px; }
+        .status.succeeded { background-color: #28a745; }
+        .status.failed { background-color: #dc3545; }
+        .status.running { background-color: #17a2b8; }
+        .status.pending, .status.runnable, .status.starting, .status.submitted { background-color: #ffc107; color: #333; }
+        .error { color: #dc3545; font-weight: bold; }
+        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
+        .modal-content { background-color: #fefefe; margin: 10% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 700px; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .close-button { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+        .close-button:hover, .close-button:focus { color: black; text-decoration: none; }
+        pre { background-color: #eee; padding: 1em; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word; }
     </style>
 </head>
 <body>
@@ -18,40 +31,93 @@
     <h2>Monitoring Job Queue: {{ job_queue }}</h2>
 
     <div id="jobs-container">
-        <h2>Running Jobs</h2>
-        <div id="jobs-list">Loading...</div>
+        <div id="jobs-list">Loading jobs...</div>
+
+        <!-- Modal for Logs/Metrics -->
+        <div id="info-modal" class="modal">
+            <div class="modal-content">
+                <span class="close-button">&times;</span>
+                <h3 id="modal-title">Job Information</h3>
+                <pre id="modal-body">Loading...</pre>
+            </div>
+        </div>
     </div>
 
     <script>
+        const jobsListDiv = document.getElementById('jobs-list');
+        const modal = document.getElementById('info-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalBody = document.getElementById('modal-body');
+        const closeButton = document.querySelector('.close-button');
+
+        // Close modal events
+        closeButton.onclick = () => { modal.style.display = 'none'; };
+        window.onclick = (event) => {
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        };
+
+        async function showInfo(jobId, type) {
+            modalTitle.innerText = `Job ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+            modalBody.innerText = 'Loading...';
+            modal.style.display = 'block';
+
+            try {
+                const response = await fetch(`/jobs/${jobId}/${type}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    modalBody.innerText = `Error: ${data.error}`;
+                } else if (type === 'logs') {
+                    modalBody.innerText = data.logs.length > 0 ? data.logs.join('\n') : 'No logs available.';
+                } else if (type === 'metrics') {
+                    modalBody.innerText = JSON.stringify(data, null, 2);
+                }
+            } catch (error) {
+                modalBody.innerText = `Failed to fetch ${type}.`;
+            }
+        }
+
         async function fetchJobs() {
-            const jobsList = document.getElementById('jobs-list');
             try {
                 const response = await fetch('/jobs');
                 const jobs = await response.json();
 
                 if (jobs.error) {
-                    jobsList.innerHTML = `<p>Error fetching jobs: ${jobs.error}</p>`;
+                    jobsListDiv.innerHTML = `<p class="error">Error: ${jobs.error}</p>`;
                     return;
                 }
 
                 if (jobs.length === 0) {
-                    jobsList.innerHTML = '<p>No running jobs found.</p>';
+                    jobsListDiv.innerHTML = '<p>No jobs found in any status.</p>';
                     return;
                 }
 
-                jobsList.innerHTML = jobs.map(job => `
-                    <div class="job">
-                        <span class="job-id">${job.jobId}</span> (${job.jobName}) - Status: ${job.status}
-                    </div>
-                `).join('');
+                let html = '<h2>All Jobs</h2><table><tr><th>Job Name</th><th>Status</th><th>Created</th><th>Actions</th></tr>';
+                jobs.forEach(job => {
+                    const createdDate = new Date(job.createdAt).toLocaleString();
+                    html += `<tr>
+                        <td>${job.jobName} (${job.jobId})</td>
+                        <td><span class="status ${job.status.toLowerCase()}">${job.status}</span></td>
+                        <td>${createdDate}</td>
+                        <td>
+                            <button onclick="showInfo('${job.jobId}', 'logs')">View Logs</button>
+                            <button onclick="showInfo('${job.jobId}', 'metrics')">View Metrics</button>
+                        </td>
+                    </tr>`;
+                });
+                html += '</table>';
+                jobsListDiv.innerHTML = html;
             } catch (error) {
-                jobsList.innerHTML = `<p>Error fetching jobs: ${error.message}</p>`;
+                jobsListDiv.innerHTML = '<p class="error">Failed to fetch jobs. Is the monitor app running?</p>';
             }
         }
 
-        // Fetch jobs every 10 seconds
+        // Fetch jobs every 30 seconds
+        setInterval(fetchJobs, 30000);
+        // Initial fetch
         fetchJobs();
-        setInterval(fetchJobs, 10000);
     </script>
 </body>
 </html>
