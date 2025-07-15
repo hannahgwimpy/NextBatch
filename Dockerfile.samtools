@@ -1,0 +1,5 @@
+# Dockerfile for samtools
+FROM nextflow-containers:base
+
+# Install samtools - replace with actual installation commands
+RUN echo "Install samtools here"

@@ -1,0 +1,5 @@
+# Dockerfile for gatk
+FROM nextflow-containers:base
+
+# Install gatk - replace with actual installation commands
+RUN echo "Install gatk here"

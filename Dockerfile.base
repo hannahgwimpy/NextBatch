@@ -1,0 +1,12 @@
+# Base Dockerfile for Nextflow containers
+FROM debian:buster-slim
+
+# Install basic dependencies
+RUN apt-get update && apt-get install -y \
+    procps \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set a working directory
+WORKDIR /work

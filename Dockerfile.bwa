@@ -1,0 +1,5 @@
+# Dockerfile for bwa
+FROM nextflow-containers:base
+
+# Install bwa - replace with actual installation commands
+RUN echo "Install bwa here"

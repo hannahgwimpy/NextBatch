@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nextflow AWS Batch Dashboard</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        h1, h2 { color: #333; }
+        #jobs-container { margin-top: 1em; padding: 1em; border: 1px solid #ccc; border-radius: 5px; }
+        .job { border-bottom: 1px solid #eee; padding: 0.5em 0; }
+        .job:last-child { border-bottom: none; }
+        .job-id { font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Nextflow AWS Batch Dashboard</h1>
+    <h2>Monitoring Job Queue: {{ job_queue }}</h2>
+
+    <div id="jobs-container">
+        <h2>Running Jobs</h2>
+        <div id="jobs-list">Loading...</div>
+    </div>
+
+    <script>
+        async function fetchJobs() {
+            const jobsList = document.getElementById('jobs-list');
+            try {
+                const response = await fetch('/jobs');
+                const jobs = await response.json();
+
+                if (jobs.error) {
+                    jobsList.innerHTML = `<p>Error fetching jobs: ${jobs.error}</p>`;
+                    return;
+                }
+
+                if (jobs.length === 0) {
+                    jobsList.innerHTML = '<p>No running jobs found.</p>';
+                    return;
+                }
+
+                jobsList.innerHTML = jobs.map(job => `
+                    <div class="job">
+                        <span class="job-id">${job.jobId}</span> (${job.jobName}) - Status: ${job.status}
+                    </div>
+                `).join('');
+            } catch (error) {
+                jobsList.innerHTML = `<p>Error fetching jobs: ${error.message}</p>`;
+            }
+        }
+
+        // Fetch jobs every 10 seconds
+        fetchJobs();
+        setInterval(fetchJobs, 10000);
+    </script>
+</body>
+</html>
