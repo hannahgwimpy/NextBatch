@@ -35,66 +35,79 @@ A comprehensive template for running Nextflow workflows on AWS Batch. It include
 
 ### Prerequisites
 
-- [AWS CLI](https://aws.amazon.com/cli/) installed and configured.
-- [Docker](https://www.docker.com/get-started) installed.
-- [Python 3](https://www.python.org/downloads/) and `boto3`, `flask` libraries installed (`pip install boto3 flask`).
-- An AWS account with appropriate permissions.
+- [AWS CLI](https://aws.amazon.com/cli/) installed and configured with a profile (e.g., `saml`).
+- An AWS account with permissions to deploy CloudFormation stacks. If your permissions are restricted, you will need to obtain existing IAM Role ARNs from your administrator.
+- [Python 3](https://www.python.org/downloads/) and `boto3` installed (`pip install boto3`).
 
-### 1. Deploy the Infrastructure
+### Deploying the Infrastructure
 
-The CloudFormation template in the `infrastructure` directory will create all the necessary AWS resources.
+The CloudFormation template in `infrastructure/cloudformation-template.yaml` creates a robust, 3-tiered VPC and all the necessary resources for a production-grade Nextflow environment. 
 
-(Instructions for deploying the infrastructure remain the same)
+To deploy, use the following AWS CLI command. You **must** provide values for the Availability Zone parameters (`pAz1`, `pAz2`, etc.). It is also **highly recommended** to provide pre-existing IAM role ARNs (`pBatchInstanceRoleArn`, etc.) to avoid potential permission errors during stack creation.
 
-### 2. Update Configuration Files
+```bash
+aws cloudformation deploy \
+  --template-file infrastructure/cloudformation-template.yaml \
+  --stack-name nextbatch-dev \
+  --capabilities CAPABILITY_IAM \
+  --profile saml \
+  --parameter-overrides \
+    pAz1=<your-az-1> \
+    pAz2=<your-az-2> \
+    pAz3=<your-az-3> \
+    pAz4=<your-az-4> \
+    pBatchInstanceRoleArn=<your-batch-instance-role-arn> \
+    pSpotFleetRoleArn=<your-spot-fleet-role-arn> \
+    pNextflowJobRoleArn=<your-nextflow-job-role-arn> \
+    pLambdaExecutionRoleArn=<your-lambda-execution-role-arn>
+```
 
-(Instructions for updating configuration files remain the same)
+After deployment, you can find the names and ARNs of the created resources in the `Outputs` tab of the CloudFormation stack in the AWS Console.
 
-### 3. Build and Push Containers
+### Configuration Parameters
 
-(Instructions for building and pushing containers remain the same)
+The CloudFormation template is highly customizable through its parameters. Here is a reference for the key options:
 
-## Metadata Management
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `pCreateEFS` | Set to `true` to create an EFS file system. This is **recommended** for use as Nextflow's scratch directory (`-work-dir`). | `true` |
+| `pCreateFlowLogs` | Set to `true` to enable VPC Flow Logs for network monitoring. | `false` |
+| `pBatchInstanceRoleArn` | Provide an existing IAM Role ARN for AWS Batch instances. If left blank, a new role will be created. | `""` |
+| `pSpotFleetRoleArn` | Provide an existing IAM Role ARN for the EC2 Spot Fleet. If left blank, a new role will be created. | `""` |
+| `pNextflowJobRoleArn` | Provide an existing IAM Role ARN for Nextflow jobs. If left blank, a new role will be created. | `""` |
+| `pLambdaExecutionRoleArn` | Provide an existing IAM Role ARN for the Lambda function. If left blank, a new role will be created. | `""` |
+| `pNumberOfAzs` | The number of Availability Zones to deploy subnets into. | `2` |
+| `pAz1`, `pAz2`, ... | The specific Availability Zones to use (e.g., `us-east-1a`). **Required.** | `""` |
+| `pVpcCidrPrefix` | The first two octets for the VPC's CIDR block (e.g., `10.10`). The VPC will be a `/16`. | `10.10` |
+| `pInstanceTypes` | Instance types for the Batch compute environment. | `optimal` |
+| `pMinVcpus`, `pDesiredVcpus`, `pMaxVcpus` | vCPU scaling parameters for the Batch compute environment. | `0`, `0`, `128` |
 
-This project features a robust, cloud-native metadata management system designed to ensure your data is standardized, queryable, and reusable across multiple experiments. The system uses DynamoDB to manage experimental contexts and attaches core, immutable metadata directly to your data files in S3.
+## Using the System
+
+Once the infrastructure is deployed, you can use the provided Python scripts to manage data and launch workflows.
 
 ### 1. Upload Data with Metadata
 
-To register your data with the system, use the `scripts/upload_with_metadata.py` script. This tool uploads your file to S3, attaches its core metadata (e.g., sample ID, organism) as tags, and records its experimental context (e.g., treatment group, project ID) in DynamoDB.
-
-**Example:**
+Use `scripts/upload_with_metadata.py` to upload data to S3 and register its metadata in DynamoDB.
 
 ```bash
 python scripts/upload_with_metadata.py \
-    --file-path /path/to/your/sample_A_R1.fastq.gz \
-    --bucket your-nextflow-bucket-name \
-    --key raw_data/sample_A_R1.fastq.gz \
-    --table-name YourStackName-ExperimentContexts \
+    --file-path /path/to/your/sample.fastq.gz \
+    --bucket <S3BucketName-from-outputs> \
+    --table-name <DynamoDBTableName-from-outputs> \
     --experiment-id EXP001 \
-    --context-json '{"experimental_group": "treatment", "treatment": "drug_x"}' \
-    --core-metadata-json '{"sample_id": "SAM001", "organism": "homo_sapiens"}'
+    --core-metadata-json '{"sample_id": "SAM001"}'
 ```
 
-### 2. Launch a Workflow with an Experiment ID
+### 2. Launch a Workflow
 
-Use the `launcher.py` script to submit a Nextflow workflow. When you provide an `--experiment-id`, the launcher invokes an AWS Lambda function to dynamically generate the correct samplesheet from the metadata you've stored.
-
-**Example:**
+Use `launcher.py` to submit a Nextflow workflow, referencing the `experiment-id` to generate a samplesheet on the fly.
 
 ```bash
 python launcher.py \
-    --workflow https://github.com/nf-core/rnaseq \
-    --params params.json \
+    --workflow nf-core/rnaseq \
     --experiment-id EXP001 \
-    --lambda-function-name YourStackName-GenerateSamplesheet \
-    --bucket your-nextflow-bucket-name \
-    --queue YourStackName-job-queue
+    --lambda-function-name <LambdaFunctionName-from-outputs> \
+    --bucket <S3BucketName-from-outputs> \
+    --queue <BatchJobQueueArn-from-outputs>
 ```
-
-## Monitor the Workflow
-
-(Instructions for monitoring the workflow remain the same)
-
-## Advanced Configuration
-
-(Instructions for advanced configuration remain the same)

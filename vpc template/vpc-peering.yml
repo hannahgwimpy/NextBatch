@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template creates a VPC peering connection either in the same account or across accounts.
+
+
+Parameters:
+
+  pPeerAcrossAccount:
+    Type: String
+    Default: false
+    Description: False with create a peering connection in the same account.
+    AllowedValues:
+      - false
+      - true
+
+  pVpcLocalId:
+    Type: AWS::EC2::VPC::Id
+    Description: Local account VPC to create peering connection for.
+
+  pVpcDestId:
+    Type: String
+    Description: Destination VPC ID.
+
+  pVpcDestRegion:
+    Type: String
+    Description: Destination VPC Region.
+
+  pVpcPeerDescription:
+    Type: String
+    Description: VPC Peering Description.
+
+  pVpcDestAcctId:
+    Type: String
+    Description: Destination VPC Account ID - Specify Local Account ID if peering in the same account.
+
+  pVpcPeeringRoleArn:
+    Type: String
+    Description: "***DO NOT SPECIFY IF PEERING VPCs IN THE SAME ACCOUNT***"
+
+  pEnvironmentTag:
+    Type: String
+    Description: Environment type for default resource tagging.
+    Default: development
+    AllowedValues:
+      - development
+      - staging
+      - qa
+      - dr
+      - sandbox
+      - production
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterLabels:
+      pVpcPeeringRoleArn:
+        default: VPC Peering Role ARN
+      pPeerAcrossAccount:
+        default: Peer VPCs across accounts?
+      pVpcPeerDescription:
+        default: VPC Peering Description
+      pVpcLocalId:
+        default: VPC ID - Local
+      pVpcDestAcctId:
+        default: Account ID - Destination
+      pVpcDestRegion:
+        default: Region - Destination
+      pVpcDestId:
+        default: VPC ID - Destination
+      pEnvironmentTag:
+        default: Environment Tag
+
+    ParameterGroups:
+      - Label:
+          default: IAM Settings
+        Parameters:
+            - pVpcPeeringRoleArn
+      - Label:
+          default: VPC Peering Settings
+        Parameters:
+            - pPeerAcrossAccount
+            - pVpcPeerDescription
+            - pVpcLocalId
+            - pVpcDestAcctId
+            - pVpcDestRegion
+            - pVpcDestId  
+      - Label:
+          default: Tagging
+        Parameters:
+          - pEnvironmentTag
+
+Conditions:
+
+  CondCrossAccountPeer: !Equals [true, !Ref pPeerAcrossAccount]
+
+Resources:
+
+  vpcPeeringConnection:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      PeerOwnerId: !Ref pVpcDestAcctId
+      PeerRegion: !Ref pVpcDestRegion
+      PeerRoleArn: !If [CondCrossAccountPeer, !Ref pVpcPeeringRoleArn, !Ref "AWS::NoValue" ]
+      PeerVpcId: !Ref pVpcDestId
+      VpcId: !Ref pVpcLocalId
+      Tags:
+        - Key: Name
+          Value: !Ref pVpcPeerDescription
+        - Key: environment
+          Value: !Ref pEnvironmentTag
+        - Key: controlled-by
+          Value: !Sub cloudformation-${AWS::StackName}

@@ -2,127 +2,615 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Nextflow AWS Batch Infrastructure'
 
 Parameters:
-  VpcCidr: 
+
+  # Batch Parameters
+  pEcsAmi:
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Description: "The ECS-optimized AMI to use for the Batch compute environment"
+    Default: "/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id"
+  pInstanceTypes:
+    Type: "CommaDelimitedList"
+    Description: "The instance types to use for the Batch compute environment"
+    Default: "optimal"
+  pMinVcpus:
+    Type: "Number"
+    Description: "The minimum number of vCPUs to maintain in the Batch compute environment"
+    Default: 0
+  pMaxVcpus:
+    Type: "Number"
+    Description: "The maximum number of vCPUs to scale up to in the Batch compute environment"
+    Default: 128
+  pDesiredVcpus:
+    Type: "Number"
+    Description: "The desired number of vCPUs to start with in the Batch compute environment"
+    Default: 0
+
+  # IAM Role Parameters (Provide ARNs to use existing roles)
+  pBatchInstanceRoleArn:
     Type: String
-    Default: 10.0.0.0/16
-    Description: CIDR block for the VPC.
-  Subnet1Cidr:
+    Description: "ARN for the Batch Instance Role. If provided, the template will use this existing role."
+    Default: ""
+  pNextflowJobRoleArn:
     Type: String
-    Default: 10.0.1.0/24
-    Description: CIDR block for private subnet 1.
-  Subnet2Cidr:
+    Description: "ARN for the Nextflow Job Role. If provided, the template will use this existing role."
+    Default: ""
+  pSpotFleetRoleArn:
     Type: String
-    Default: 10.0.2.0/24
-    Description: CIDR block for private subnet 2.
-  PublicSubnetCidr:
+    Description: "ARN for the Spot Fleet Role. If provided, the template will use this existing role."
+    Default: ""
+  pLambdaExecutionRoleArn:
     Type: String
-    Default: 10.0.3.0/24
-    Description: CIDR block for public subnet.
+    Description: "ARN for the Lambda Execution Role. If provided, the template will use this existing role."
+    Default: ""
+
+  # Optional Feature Parameters
+  pCreateEFS:
+    Type: String
+    Description: "Set to 'true' to create an EFS file system for the Batch environment."
+    Default: "true"
+    AllowedValues: ["true", "false"]
+  pCreateFlowLogs:
+    Type: String
+    Description: "Set to 'true' to create VPC Flow Logs. Requires IAM permissions."
+    Default: "false"
+    AllowedValues: ["true", "false"]
+
+  # VPC Parameters (from vpc.yml)
+  pNumberOfAzs:
+    Type: Number
+    Description: How many AZs would you like to deploy?
+    Default: 2
+    AllowedValues: [1, 2, 3, 4]
+  pAz1:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: "Availability Zone 1. Don't leave it blank."
+  pAz2:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: "Availability Zone 2. Don't leave it blank, even if you are only deploying in a single AZ."
+  pAz3:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: "Availability Zone 3. Don't leave it blank, even if you are only deploying in a single AZ."
+  pAz4:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: "Availability Zone 4. Don't leave it blank, even if you are only deploying in a single AZ."
+  pSpecifyManualCidrs:
+    Type: String
+    Description: "Choosing false will automatically set the CIDRs incrementally. Choosing true will allow you to choose your own CIDRs below."
+    Default: false 
+    AllowedValues: [false, true]
+  pVpcCidrPrefix:
+    Type: String
+    Description: "Assumes /16 and sets public, private, and data subnet CIDRs incrementally. If specifying your own CIDRs, please enter the first two octets of your specified CIDR."
+    Default: "10.10"
+  pCreatePrivateSubnets:
+    Type: String
+    Description: "Should private subnets be created?"
+    Default: True 
+    AllowedValues: [True, False]
+  pCreateDataSubnets:
+    Type: String
+    Description: "Should data subnets be created?"
+    Default: True 
+    AllowedValues: [True, False]
+  pPublicSubnet1octet:
+    Type: String
+    Description: "Public Subnet 1 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pPublicSubnet2octet:
+    Type: String
+    Description: "Public Subnet 2 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pPublicSubnet3octet:
+    Type: String
+    Description: "Public Subnet 3 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pPublicSubnet4octet:
+    Type: String
+    Description: "Public Subnet 4 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pPrivateSubnet1octet:
+    Type: String
+    Description: "Private Subnet 1 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pPrivateSubnet2octet:
+    Type: String
+    Description: "Private Subnet 2 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pPrivateSubnet3octet:
+    Type: String
+    Description: "Private Subnet 3 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pPrivateSubnet4octet:
+    Type: String
+    Description: "Private Subnet 4 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pDataSubnet1octet:
+    Type: String
+    Description: "Data Subnet 1 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pDataSubnet2octet:
+    Type: String
+    Description: "Data Subnet 2 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pDataSubnet3octet:
+    Type: String
+    Description: "Data Subnet 3 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pDataSubnet4octet:
+    Type: String
+    Description: "Data Subnet 4 (_._.XX.0/24). First 2 octets taken from VPC CIDR Prefix above. Leave blank if not specifying manual CIDRs."
+    Default: ""
+  pCustomDomain:
+    Type: String
+    Description: "Custom Internal Domain for DHCP. AmazonProvidedDNS will be used as standby."
+    Default: false
+    AllowedValues: [true, false]
+  pDhcpInternalDomain:
+    Type: String
+    Description: "Custom Internal Domain Name. Specify if Custom Domain parameter is set to true."
+    Default: ""
+  pDc01Ip:
+    Type: String
+    Description: "Domain Controller Private IP for DHCP Option Set"
+    Default: ""
+  pDc02Ip:
+    Type: String
+    Description: "Domain Controller Private IP for DHCP Option Set"
+    Default: ""
+  pDc03Ip:
+    Type: String
+    Description: "Domain Controller Private IP for DHCP Option Set"
+    Default: ""
+  pFlowlogRetention:
+    Type: Number
+    Description: "Days VPC Flowlogs are retained in CloudWatch."
+    Default: 7
+  pS3VpcEndpoint:
+    Type: String
+    Description: "Enable VPC Endpoint S3"
+    Default: true
+    AllowedValues: [true, false]
+  pEcrEndpoint:
+    Type: String
+    Description: "Enable VPC Endpoint ECR"
+    Default: true
+    AllowedValues: [true, false]
+  pEnvironmentTag:
+    Type: String
+    Description: "Environment type for default resource tagging"
+    Default: "development"
+    AllowedValues: ["development", "staging", "qa", "dr", "sandbox", "production", "central"]
+
+Conditions:
+  CondShouldCreateEFS: !Equals [!Ref pCreateEFS, "true"]
+  CondShouldCreateFlowLogs: !Equals [!Ref pCreateFlowLogs, "true"]
+
+  # IAM Role Conditions
+  CondCreateBatchInstanceRole: !Equals [!Ref pBatchInstanceRoleArn, ""]
+  CondCreateNextflowJobRole: !Equals [!Ref pNextflowJobRoleArn, ""]
+  CondCreateSpotFleetRole: !Equals [!Ref pSpotFleetRoleArn, ""]
+  CondCreateLambdaExecutionRole: !Equals [!Ref pLambdaExecutionRoleArn, ""]
+
+  # VPC Conditions (from vpc.yml)
+  CondCustomDomain: !Equals [true, !Ref pCustomDomain]
+  CondSecondDc: !And [!Not [!Equals ["", !Ref pDc02Ip]], !Equals [true, !Ref pCustomDomain]]
+  CondThirdDc: !And [!Not [!Equals ["", !Ref pDc03Ip]], !Equals [true, !Ref pCustomDomain]]
+  CondTwoAz: !Or [!Equals [2, !Ref pNumberOfAzs], !Equals [3, !Ref pNumberOfAzs], !Equals [4, !Ref pNumberOfAzs]]
+  CondThreeAz: !Or [ !Equals [3, !Ref pNumberOfAzs], !Equals [4, !Ref pNumberOfAzs]]
+  CondFourAz: !Equals [4, !Ref pNumberOfAzs]
+
+  CondCreatePrivateSubnets: !Equals [True, !Ref pCreatePrivateSubnets]
+  CondCreateDataSubnets: !Equals [True, !Ref pCreateDataSubnets]
+  CondCreate2PrivateSubnets: !And [!Condition CondTwoAz, !Condition CondCreatePrivateSubnets]
+  CondCreate3PrivateSubnets: !And [!Condition CondThreeAz, !Condition CondCreatePrivateSubnets]
+  CondCreate4PrivateSubnets: !And [!Condition CondFourAz, !Condition CondCreatePrivateSubnets]
+
+  CondCreate2DataSubnets: !And [!Condition CondTwoAz, !Condition CondCreateDataSubnets]
+  CondCreate3DataSubnets: !And [!Condition CondThreeAz, !Condition CondCreateDataSubnets]
+  CondCreate4DataSubnets: !And [!Condition CondFourAz, !Condition CondCreateDataSubnets]
+
+  CondSpecifyCustomCIDRs: !Equals [True, !Ref pSpecifyManualCidrs]
+  CondCreateS3VpcEndpoint: !Equals [True, !Ref pS3VpcEndpoint]
+  CondCreateEcrVpcEndpoint: !Equals [True, !Ref pEcrEndpoint]
 
 Resources:
   # VPC and Networking
   VPC:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: !Ref VpcCidr
+      CidrBlock: !Sub "${pVpcCidrPrefix}.0.0/16"
       EnableDnsHostnames: true
       EnableDnsSupport: true
       Tags:
         - Key: Name
-          Value: !Sub '${AWS::StackName}-VPC'
+          Value: !Sub "${AWS::StackName}-VPC"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-IGW"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
 
-  VPCGatewayAttachment:
+  GatewayToInternet:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
 
-  PublicSubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: !Ref PublicSubnetCidr
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !Sub '${AWS::StackName}-PublicSubnet'
-
-  PrivateSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: !Ref Subnet1Cidr
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      Tags:
-        - Key: Name
-          Value: !Sub '${AWS::StackName}-PrivateSubnet1'
-
-  PrivateSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: !Ref Subnet2Cidr
-      AvailabilityZone: !Select [ 1, !GetAZs '' ]
-      Tags:
-        - Key: Name
-          Value: !Sub '${AWS::StackName}-PrivateSubnet2'
-
-  NatGatewayEIP:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-
-  NatGateway:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt NatGatewayEIP.AllocationId
-      SubnetId: !Ref PublicSubnet
-
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-Public-RT"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
 
   PublicRoute:
     Type: AWS::EC2::Route
-    DependsOn: VPCGatewayAttachment
     Properties:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
-  PublicSubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PublicSubnet
-      RouteTableId: !Ref PublicRouteTable
-
-  PrivateRouteTable:
-    Type: AWS::EC2::RouteTable
+  # Public Subnets
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
+      AvailabilityZone: !Ref pAz1
+      CidrBlock: !If [CondSpecifyCustomCIDRs, !Sub "${pVpcCidrPrefix}.${pPublicSubnet1octet}.0/24", !Sub "${pVpcCidrPrefix}.0.0/24"]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnet1"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
 
-  PrivateRoute:
-    Type: AWS::EC2::Route
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: CondTwoAz
     Properties:
-      RouteTableId: !Ref PrivateRouteTable
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref pAz2
+      CidrBlock: !If [CondSpecifyCustomCIDRs, !Sub "${pVpcCidrPrefix}.${pPublicSubnet2octet}.0/24", !Sub "${pVpcCidrPrefix}.1.0/24"]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnet2"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: CondThreeAz
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref pAz3
+      CidrBlock: !If [CondSpecifyCustomCIDRs, !Sub "${pVpcCidrPrefix}.${pPublicSubnet3octet}.0/24", !Sub "${pVpcCidrPrefix}.2.0/24"]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnet3"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  PublicSubnet4:
+    Type: AWS::EC2::Subnet
+    Condition: CondFourAz
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref pAz4
+      CidrBlock: !If [CondSpecifyCustomCIDRs, !Sub "${pVpcCidrPrefix}.${pPublicSubnet4octet}.0/24", !Sub "${pVpcCidrPrefix}.3.0/24"]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnet4"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CondTwoAz
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CondThreeAz
+    Properties:
+      SubnetId: !Ref PublicSubnet3
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet4RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CondFourAz
+    Properties:
+      SubnetId: !Ref PublicSubnet4
+      RouteTableId: !Ref PublicRouteTable
+
+  # NAT Gateways and Private Routing
+  NatGatewayEIP1:
+    Type: AWS::EC2::EIP
+    Condition: CondCreatePrivateSubnets
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-Nat-Gateway-EIP-1"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Condition: CondCreatePrivateSubnets
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-Nat-Gateway-1"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  NatGatewayEIP2:
+    Type: AWS::EC2::EIP
+    Condition: CondCreate2PrivateSubnets
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-Nat-Gateway-EIP-2"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Condition: CondCreate2PrivateSubnets
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP2.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-Nat-Gateway-2"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Condition: CondCreatePrivateSubnets
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-Private-RT-1"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  PrivateRoute1:
+    Type: AWS::EC2::Route
+    Condition: CondCreatePrivateSubnets
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
       DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway
+      NatGatewayId: !Ref NatGateway1
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Condition: CondCreate2PrivateSubnets
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-Private-RT-2"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Condition: CondCreate2PrivateSubnets
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2
+
+  # Private Subnets
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Condition: CondCreatePrivateSubnets
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref pAz1
+      CidrBlock: !If [CondSpecifyCustomCIDRs, !Sub "${pVpcCidrPrefix}.${pPrivateSubnet1octet}.0/24", !Sub "${pVpcCidrPrefix}.64.0/24"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnet1"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: CondCreate2PrivateSubnets
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref pAz2
+      CidrBlock: !If [CondSpecifyCustomCIDRs, !Sub "${pVpcCidrPrefix}.${pPrivateSubnet2octet}.0/24", !Sub "${pVpcCidrPrefix}.65.0/24"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnet2"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
 
   PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CondCreatePrivateSubnets
     Properties:
       SubnetId: !Ref PrivateSubnet1
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref PrivateRouteTable1
 
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CondCreate2PrivateSubnets
     Properties:
       SubnetId: !Ref PrivateSubnet2
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref PrivateRouteTable2
+
+  # Private Data Subnets (No Internet Access)
+  PrivateDataRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Condition: CondCreateDataSubnets
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-Data-RT-1"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  PrivateDataRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Condition: CondCreate2DataSubnets
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-Data-RT-2"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  PrivateDataSubnet1:
+    Type: AWS::EC2::Subnet
+    Condition: CondCreateDataSubnets
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref pAz1
+      CidrBlock: !If [CondSpecifyCustomCIDRs, !Sub "${pVpcCidrPrefix}.${pDataSubnet1octet}.0/24", !Sub "${pVpcCidrPrefix}.128.0/24"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-DataSubnet1"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  PrivateDataSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: CondCreate2DataSubnets
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref pAz2
+      CidrBlock: !If [CondSpecifyCustomCIDRs, !Sub "${pVpcCidrPrefix}.${pDataSubnet2octet}.0/24", !Sub "${pVpcCidrPrefix}.129.0/24"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-DataSubnet2"
+        - Key: Environment
+          Value: !Ref pEnvironmentTag
+
+  PrivateDataSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CondCreateDataSubnets
+    Properties:
+      SubnetId: !Ref PrivateDataSubnet1
+      RouteTableId: !Ref PrivateDataRouteTable1
+
+  PrivateDataSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CondCreate2DataSubnets
+    Properties:
+      SubnetId: !Ref PrivateDataSubnet2
+      RouteTableId: !Ref PrivateDataRouteTable2
+
+  # VPC Endpoints
+  S3VPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: CondCreateS3VpcEndpoint
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: "s3:*"
+            Resource: "*"
+      RouteTableIds:
+        - !Ref PublicRouteTable
+        - !If [CondCreatePrivateSubnets, !Ref PrivateRouteTable1, !Ref "AWS::NoValue"]
+        - !If [CondCreate2PrivateSubnets, !Ref PrivateRouteTable2, !Ref "AWS::NoValue"]
+        - !If [CondCreateDataSubnets, !Ref PrivateDataRouteTable1, !Ref "AWS::NoValue"]
+        - !If [CondCreate2DataSubnets, !Ref PrivateDataRouteTable2, !Ref "AWS::NoValue"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcId: !Ref VPC
+
+  EcrDockerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: CondCreateEcrVpcEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref BatchSecurityGroup
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !If [CondTwoAz, !Ref PrivateSubnet2, !Ref "AWS::NoValue"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.dkr"
+      VpcEndpointType: Interface
+      VpcId: !Ref VPC
+
+  # VPC Flow Logs
+  FlowLogRole:
+    Type: AWS::IAM::Role
+    Condition: CondShouldCreateFlowLogs
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - vpc-flow-logs.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: "FlowLogPolicy"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: "*"
+
+  VPCFlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: CondShouldCreateFlowLogs
+    Properties:
+      LogGroupName: !Sub "/${AWS::StackName}/VPCFlowLogs"
+      RetentionInDays: !Ref pFlowlogRetention
+
+  VPCFlowLogs:
+    Type: AWS::EC2::FlowLog
+    Condition: CondShouldCreateFlowLogs
+    Properties:
+      DeliverLogsPermissionArn: !GetAtt FlowLogRole.Arn
+      LogGroupName: !Ref VPCFlowLogGroup
+      ResourceId: !Ref VPC
+      ResourceType: VPC
+      TrafficType: ALL
 
   # S3 Bucket for workflow data
   WorkflowBucket:
@@ -132,16 +620,50 @@ Resources:
       VersioningConfiguration:
         Status: Enabled
       
-  # EFS for shared storage (optional but recommended)
+  # EFS for shared storage (optional)
+  EfsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CondShouldCreateEFS
+    Properties:
+      GroupDescription: "Security group for EFS"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref BatchSecurityGroup
+
   FileSystem:
     Type: AWS::EFS::FileSystem
+    Condition: CondShouldCreateEFS
     Properties:
       PerformanceMode: generalPurpose
       ThroughputMode: bursting
+      Encrypted: true
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-EFS"
+
+  MountTarget1:
+    Type: AWS::EFS::MountTarget
+    Condition: CondShouldCreateEFS
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroups: [!Ref EfsSecurityGroup]
+
+  MountTarget2:
+    Type: AWS::EFS::MountTarget
+    Condition: CondCreate2PrivateSubnets
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref PrivateSubnet2
+      SecurityGroups: [!Ref EfsSecurityGroup]
 
   # IAM Roles
   BatchInstanceRole:
     Type: AWS::IAM::Role
+    Condition: CondCreateBatchInstanceRole
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -153,15 +675,17 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
         - arn:aws:iam::aws:policy/AmazonS3FullAccess # For simplicity, scope down in production
-        - arn:aws:iam::aws:policy/AmazonEFSFullAccess # For simplicity, scope down in production
+        - !If [CondShouldCreateEFS, 'arn:aws:iam::aws:policy/AmazonEFSFullAccess', !Ref "AWS::NoValue"]
 
   BatchInstanceProfile:
     Type: AWS::IAM::InstanceProfile
+    Condition: CondCreateBatchInstanceRole
     Properties:
       Roles: [!Ref BatchInstanceRole]
 
   SpotFleetRole:
     Type: AWS::IAM::Role
+    Condition: CondCreateSpotFleetRole
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -175,6 +699,7 @@ Resources:
 
   NextflowJobRole:
     Type: AWS::IAM::Role
+    Condition: CondCreateNextflowJobRole
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -214,20 +739,21 @@ Resources:
       Type: MANAGED
       State: ENABLED
       ComputeResources:
-        Type: EC2_SPOT  # or EC2 for on-demand
-        MinvCpus: 0
-        MaxvCpus: 256
-        DesiredvCpus: 4
-        InstanceTypes:
-          - optimal
+        Type: EC2_SPOT
+        AllocationStrategy: SPOT_CAPACITY_OPTIMIZED
+        MinvCpus: !Ref pMinVcpus
+        MaxvCpus: !Ref pMaxVcpus
+        DesiredvCpus: !Ref pDesiredVcpus
+        InstanceTypes: !Ref pInstanceTypes
+        ImageId: !Ref pEcsAmi
         Subnets:
           - !Ref PrivateSubnet1
-          - !Ref PrivateSubnet2
+          - !If [CondTwoAz, !Ref PrivateSubnet2, !Ref "AWS::NoValue"]
+          # Add Subnet3 and Subnet4 if they are ever implemented
         SecurityGroupIds:
           - !Ref BatchSecurityGroup
-        InstanceRole: !GetAtt BatchInstanceProfile.Arn
-        SpotIamFleetRole: !Ref SpotFleetRole
-        BidPercentage: 80
+        InstanceRole: !If [CondCreateBatchInstanceRole, !GetAtt BatchInstanceProfile.Arn, !Ref pBatchInstanceRoleArn]
+        SpotIamFleetRole: !If [CondCreateSpotFleetRole, !Ref SpotFleetRole, !Ref pSpotFleetRoleArn]
 
   # Batch Job Queue
   BatchJobQueue:
@@ -250,7 +776,7 @@ Resources:
         Vcpus: 1
         Memory: 1024
         Command: [ "/bin/bash", "-c", "nextflow run ${WORKFLOW_URL} -params-file ${PARAMS_FILE} -resume" ]
-        JobRoleArn: !Ref NextflowJobRole
+        JobRoleArn: !If [CondCreateNextflowJobRole, !Ref NextflowJobRole, !Ref pNextflowJobRoleArn]
         Environment:
           - Name: WORKFLOW_URL
             Value: "ref:workflow"
@@ -279,6 +805,7 @@ Resources:
   # IAM Role for Lambda
   LambdaExecutionRole:
     Type: AWS::IAM::Role
+    Condition: CondCreateLambdaExecutionRole
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -300,9 +827,8 @@ Resources:
                 Resource: !GetAtt ExperimentContextsDB.Arn
               - Effect: Allow
                 Action:
-                  - s3:GetObject
                   - s3:GetObjectTagging
-                Resource: !Sub 'arn:aws:s3:::${WorkflowBucket}/*'
+                Resource: !Sub "arn:aws:s3:::${WorkflowBucket}/*"
 
   # Lambda Function to generate samplesheet
   GenerateSamplesheetFunction:
@@ -310,9 +836,13 @@ Resources:
     Properties:
       FunctionName: !Sub '${AWS::StackName}-GenerateSamplesheet'
       Handler: lambda_function.handler.generate_samplesheet
-      Role: !GetAtt LambdaExecutionRole.Arn
+      Role: !If [CondCreateLambdaExecutionRole, !GetAtt LambdaExecutionRole.Arn, !Ref pLambdaExecutionRoleArn]
       Runtime: python3.9
       Timeout: 60
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Ref ExperimentContextsDB
+          S3_BUCKET: !Ref WorkflowBucket
       Code:
         ZipFile: |
           import os
@@ -403,15 +933,34 @@ Resources:
               }
 
 Outputs:
-  VPCId:
+  VpcId:
+    Description: ID of the created VPC
     Value: !Ref VPC
-  WorkflowBucketName:
-    Value: !Ref WorkflowBucket
+  PublicSubnetIds:
+    Description: IDs of the public subnets
+    Value: !Join [",", [!Ref PublicSubnet1, !If [CondTwoAz, !Ref PublicSubnet2, !Ref "AWS::NoValue"], !If [CondThreeAz, !Ref PublicSubnet3, !Ref "AWS::NoValue"], !If [CondFourAz, !Ref PublicSubnet4, !Ref "AWS::NoValue"]]]
+  PrivateSubnetIds:
+    Description: IDs of the private subnets
+    Value: !Join [",", [!If [CondCreatePrivateSubnets, !Ref PrivateSubnet1, !Ref "AWS::NoValue"], !If [CondCreate2PrivateSubnets, !Ref PrivateSubnet2, !Ref "AWS::NoValue"]]]
+  PrivateDataSubnetIds:
+    Description: IDs of the private data subnets
+    Value: !Join [",", [!If [CondCreateDataSubnets, !Ref PrivateDataSubnet1, !Ref "AWS::NoValue"], !If [CondCreate2DataSubnets, !Ref PrivateDataSubnet2, !Ref "AWS::NoValue"]]]
   BatchJobQueueArn:
-    Value: !GetAtt BatchJobQueue.JobQueueArn
-  NextflowJobRoleArn:
-    Value: !GetAtt NextflowJobRole.Arn
-  ExperimentContextsDBName:
+    Description: ARN of the Batch Job Queue
+    Value: !Ref BatchJobQueue
+  NextflowRunnerJobDefinitionArn:
+    Description: ARN of the Nextflow Runner Job Definition
+    Value: !Ref NextflowRunnerJobDefinition
+  DynamoDBTableName:
+    Description: Name of the DynamoDB table for experiment contexts
     Value: !Ref ExperimentContextsDB
-  GenerateSamplesheetLambdaArn:
-    Value: !GetAtt GenerateSamplesheetFunction.Arn
+  S3BucketName:
+    Description: Name of the S3 bucket for workflow data
+    Value: !Ref WorkflowBucket
+  LambdaFunctionName:
+    Description: Name of the Lambda function for generating samplesheets
+    Value: !Ref GenerateSamplesheetFunction
+  EFSFileSystemId:
+    Description: ID of the EFS File System
+    Condition: CondShouldCreateEFS
+    Value: !Ref FileSystem
