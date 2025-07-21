@@ -1,0 +1,12 @@
+{
+  "sequencing": {
+    "run_id": "240120_A00123_0456_BHVJKLDRX2",
+    "platform": "Illumina_NovaSeq_6000",
+    "read_type": "paired-end",
+    "read_length": 150,
+    "flow_cell_id": "HVJKLDRX2",
+    "lane": 1,
+    "read_number": "R1",
+    "sequencing_date": "2024-01-21"
+  }
+}

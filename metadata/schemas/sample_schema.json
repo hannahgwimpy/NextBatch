@@ -1,0 +1,14 @@
+{
+  "sample": {
+    "uuid": "550e8400-e29b-41d4-a716-446655440000",
+    "biosample_id": "SAMN12345678",
+    "organism": "Homo sapiens",
+    "tissue_source": "liver",
+    "cell_type": "hepatocyte",
+    "donor_id": "DONOR_001",
+    "collection_date": "2024-01-15",
+    "collection_method": "biopsy",
+    "preservation_method": "flash_frozen",
+    "genetic_modifications": "CRISPR_TP53_KO"
+  }
+}

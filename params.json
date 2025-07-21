@@ -1,4 +1,0 @@
-{
-    "input": "s3://your-data-bucket/input/reads.fastq.gz",
-    "output_dir": "s3://your-nextflow-bucket/output/"
-}

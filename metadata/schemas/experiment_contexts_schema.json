@@ -1,0 +1,29 @@
+{
+  "experiment_contexts": [
+    {
+      "experiment_id": "DOSE_RESPONSE_2024",
+      "pi_name": "Dr. Smith",
+      "project_id": "NIH_R01_12345",
+      "experimental_group": "treatment",
+      "treatment": "compound_X",
+      "concentration": "10uM",
+      "timepoint": "24h",
+      "replicate_type": "biological",
+      "replicate_number": 3,
+      "batch": "week_1",
+      "paired_sample": "SAMN12345679"
+    },
+    {
+      "experiment_id": "TIMECOURSE_2024",
+      "pi_name": "Dr. Jones",
+      "project_id": "NSF_67890",
+      "experimental_group": "control",
+      "treatment": "DMSO",
+      "concentration": "0.1%",
+      "timepoint": "0h",
+      "replicate_type": "technical",
+      "replicate_number": 1,
+      "batch": "week_5"
+    }
+  ]
+}

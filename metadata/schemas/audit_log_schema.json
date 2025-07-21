@@ -1,0 +1,11 @@
+{
+  "audit_log": {
+    "sample_created": "2024-01-15T10:00:00Z",
+    "created_by": "lab_tech_01",
+    "experiments_used_in": [
+      {"id": "EXP_001", "date": "2024-02-01"},
+      {"id": "EXP_017", "date": "2024-06-15"}
+    ],
+    "last_accessed": "2024-07-20T14:30:00Z"
+  }
+}

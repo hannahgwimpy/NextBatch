@@ -1,0 +1,14 @@
+{
+  "library": {
+    "library_id": "LIB_2024_0001",
+    "prep_date": "2024-01-20",
+    "prep_kit": "TruSeq_Stranded_mRNA_v2",
+    "fragmentation_method": "chemical",
+    "size_selection": "200-300bp",
+    "pcr_cycles": 12,
+    "index_i7": "ATCACG",
+    "index_i5": "TTAGGC",
+    "strandedness": "reverse",
+    "input_amount_ng": 500
+  }
+}

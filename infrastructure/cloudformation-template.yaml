@@ -183,6 +183,15 @@ Resources:
             Principal:
               Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaInvokePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt GenerateSamplesheetFunction.Arn
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonS3FullAccess # For simplicity, scope down in production
 
@@ -248,6 +257,151 @@ Resources:
           - Name: PARAMS_FILE
             Value: "ref:params"
 
+  # DynamoDB Table for experiment contexts
+  ExperimentContextsDB:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-ExperimentContexts'
+      AttributeDefinitions:
+        - AttributeName: experiment_id
+          AttributeType: S
+        - AttributeName: sample_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: experiment_id
+          KeyType: HASH
+        - AttributeName: sample_id
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LambdaDynamoDBAndS3Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                Resource: !GetAtt ExperimentContextsDB.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectTagging
+                Resource: !Sub 'arn:aws:s3:::${WorkflowBucket}/*'
+
+  # Lambda Function to generate samplesheet
+  GenerateSamplesheetFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-GenerateSamplesheet'
+      Handler: lambda_function.handler.generate_samplesheet
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import os
+          import json
+          import boto3
+          import csv
+          from io import StringIO
+
+          dynamodb = boto3.resource('dynamodb')
+          s3_client = boto3.client('s3')
+
+          def generate_samplesheet(event, context):
+              print(f"Received event: {event}")
+              try:
+                  body = json.loads(event.get('body', '{}'))
+                  experiment_id = body.get('experiment_id')
+                  if not experiment_id:
+                      raise ValueError("experiment_id not found in request body")
+              except (json.JSONDecodeError, ValueError) as e:
+                  return {
+                      'statusCode': 400,
+                      'body': json.dumps(f'Error parsing request: {str(e)}')
+                  }
+
+              table_name = os.environ.get('DYNAMODB_TABLE')
+              bucket_name = os.environ.get('S3_BUCKET')
+
+              if not table_name or not bucket_name:
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps('Error: DYNAMODB_TABLE or S3_BUCKET environment variables not set.')
+                  }
+
+              table = dynamodb.Table(table_name)
+
+              try:
+                  response = table.query(
+                      KeyConditionExpression='experiment_id = :eid',
+                      ExpressionAttributeValues={':eid': experiment_id}
+                  )
+                  items = response.get('Items', [])
+              except Exception as e:
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps(f'Error querying DynamoDB: {str(e)}')
+                  }
+
+              if not items:
+                  return {
+                      'statusCode': 404,
+                      'body': json.dumps(f'No samples found for experiment_id: {experiment_id}')
+                  }
+
+              output = StringIO()
+              header = ['sample', 'fastq_1', 'fastq_2', 'experimental_group', 'treatment']
+              writer = csv.DictWriter(output, fieldnames=header, extrasaction='ignore')
+              writer.writeheader()
+
+              for item in items:
+                  try:
+                      s3_object_key = item.get('s3_object_key')
+                      if not s3_object_key:
+                          continue
+
+                      tags_response = s3_client.get_object_tagging(
+                          Bucket=bucket_name,
+                          Key=s3_object_key
+                      )
+                      s3_tags = {tag['Key']: tag['Value'] for tag in tags_response.get('TagSet', [])}
+
+                      row_data = {
+                          'sample': item.get('sample_id'),
+                          'fastq_1': f's3://{bucket_name}/{s3_object_key}',
+                          'fastq_2': s3_tags.get('fastq_2', ''),
+                          'experimental_group': item.get('experimental_group'),
+                          'treatment': item.get('treatment')
+                      }
+                      writer.writerow(row_data)
+
+                  except Exception as e:
+                      print(f"Skipping sample {item.get('sample_id')} due to error: {str(e)}")
+                      continue
+
+              return {
+                  'statusCode': 200,
+                  'headers': {'Content-Type': 'text/csv'},
+                  'body': output.getvalue()
+              }
+
 Outputs:
   VPCId:
     Value: !Ref VPC
@@ -257,3 +411,7 @@ Outputs:
     Value: !GetAtt BatchJobQueue.JobQueueArn
   NextflowJobRoleArn:
     Value: !GetAtt NextflowJobRole.Arn
+  ExperimentContextsDBName:
+    Value: !Ref ExperimentContextsDB
+  GenerateSamplesheetLambdaArn:
+    Value: !GetAtt GenerateSamplesheetFunction.Arn
