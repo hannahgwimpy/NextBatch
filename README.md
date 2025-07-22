@@ -41,28 +41,42 @@ A comprehensive template for running Nextflow workflows on AWS Batch. It include
 
 ### Deploying the Infrastructure
 
-The CloudFormation template in `infrastructure/cloudformation-template.yaml` creates a robust, 3-tiered VPC and all the necessary resources for a production-grade Nextflow environment. 
+The infrastructure is split into two CloudFormation stacks for modularity:
+1.  **VPC Stack**: Creates the networking foundation.
+2.  **Application Stack**: Deploys the AWS Batch, S3, EFS, and other application resources into the existing VPC.
 
-To deploy, use the following AWS CLI command. You **must** provide values for the Availability Zone parameters (`pAz1`, `pAz2`, etc.). It is also **highly recommended** to provide pre-existing IAM role ARNs (`pBatchInstanceRoleArn`, etc.) to avoid potential permission errors during stack creation.
+Due to potential IAM restrictions in enterprise AWS accounts, the recommended deployment method is through the AWS Console.
 
-```bash
-aws cloudformation deploy \
-  --template-file infrastructure/cloudformation-template.yaml \
-  --stack-name nextbatch-dev \
-  --capabilities CAPABILITY_IAM \
-  --profile saml \
-  --parameter-overrides \
-    pAz1=<your-az-1> \
-    pAz2=<your-az-2> \
-    pAz3=<your-az-3> \
-    pAz4=<your-az-4> \
-    pBatchInstanceRoleArn=<your-batch-instance-role-arn> \
-    pSpotFleetRoleArn=<your-spot-fleet-role-arn> \
-    pNextflowJobRoleArn=<your-nextflow-job-role-arn> \
-    pLambdaExecutionRoleArn=<your-lambda-execution-role-arn>
-```
+#### Manual Deployment (AWS Console)
 
-After deployment, you can find the names and ARNs of the created resources in the `Outputs` tab of the CloudFormation stack in the AWS Console.
+**Prerequisites:**
+- You are logged into the correct AWS account and have assumed a role with sufficient permissions.
+- You have identified the AWS Region you will be deploying to (e.g., `us-east-2`).
+
+**Step 1: Deploy the VPC Stack**
+
+1.  In the AWS CloudFormation console, click **Create stack** -> **With new resources (standard)**.
+2.  Upload the `infrastructure/vpc-template.yml` file.
+3.  Give the stack a name (e.g., `NextBatch-VPC`).
+4.  On the parameters page, you **must** provide valid Availability Zone names for your chosen region (e.g., `us-east-2a`, `us-east-2b`).
+5.  Proceed through the steps and create the stack.
+6.  Once the status is `CREATE_COMPLETE`, go to the **Outputs** tab and copy the `VpcId` and all of the subnet IDs. You will need these for the next step.
+
+**Step 2: Deploy the Application Stack**
+
+1.  Create another stack, this time uploading the `infrastructure/cloudformation-template.yaml` file.
+2.  Give the stack a name (e.g., `NextBatch-App`).
+3.  On the parameters page, fill in the following values carefully:
+
+    *   `pWorkflowBucketName`: Enter a **unique, all-lowercase** bucket name (e.g., `vh-nextbatch-workflow-data`). S3 bucket names cannot contain uppercase letters.
+
+    *   `pBatchInstanceRoleArn`: **CRITICAL:** Provide the **Instance Profile ARN** (not the Role ARN) for your Batch compute instances. It will look like this: `arn:aws:iam::123456789012:instance-profile/your-instance-profile`.
+
+    *   `pVpcId`: Do **not** paste text. Click inside the input box and **select the VPC** you created in Step 1 from the dropdown list.
+
+    *   `pPublicSubnetIds`, `pPrivateSubnetIds`, `pPrivateDataSubnetIds`: For all three, do **not** paste text. Click inside each box and **select the corresponding subnets** from the VPC outputs from the dropdown lists.
+
+4.  Proceed to the final page, acknowledge the IAM resource creation, and click **Create stack**.
 
 ### Configuration Parameters
 
